@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Document version | 0.4 (Draft) |
+| Document version | 0.5 (Draft) |
 | Status | For review |
 | Owner | Software Architecture |
 | Last updated | 2026-11-12 |
@@ -62,7 +62,7 @@ One integrated system where a purchase, a stock movement, a salary run or an exp
 | # | Topic | Decision |
 |---|---|---|
 | D1 | Market | Bangladesh first (BDT, NBR VAT/tax, Bangladesh Labour Act); international later via country packs |
-| D2 | Frontend | **React SPA for everything**: login, onboarding, business screens, tenant admin, platform admin and document printing. **ASP.NET Core MVC is not used**, and is added only as a fallback if a concrete need appears (see 4.7, ADR-009) |
+| D2 | Frontend and backend | **Backend: ASP.NET Core controller-based Web API** (the MVC controller framework, returning JSON) handles all data management and business logic. **Frontend: React SPA** for all screens (login, onboarding, business, tenant admin, platform admin, printing). Server-rendered **MVC Razor views are not used** (fallback only, see 4.7, ADR-009) |
 | D3 | Solution structure | **One project per module and per layer** (Domain, Application, Infrastructure for each module) |
 | D4 | Tenancy | **Multi-tenant SaaS** (see 4.6) |
 | D5 | Inventory costing | **FIFO** (cost layers); weighted average may be added later through a costing strategy |
@@ -94,7 +94,7 @@ None blocking. All earlier questions are resolved (see 2.1). New questions will 
 
 | Concern | Choice |
 |---|---|
-| Runtime / Framework | .NET (current LTS), ASP.NET Core Web API |
+| Runtime / Framework | .NET (current LTS), **ASP.NET Core Web API with MVC controllers** (`AddControllers`, `ControllerBase`) for all backend data management |
 | Architecture | Clean Architecture, CQRS, modular monolith, multi-tenant |
 | Mediator / CQRS | **Cortex.Mediator** (commands, queries, notifications, pipeline behaviors) |
 | Frontend (all UI) | **React + TypeScript**, Vite, React Router, TanStack Query, React Hook Form + Zod, i18next (English now, Bangla later), UI kit **MUI** (+ MUI X Data Grid), typed API client generated from OpenAPI; code-split per module |
@@ -248,7 +248,24 @@ A **single React SPA** (TypeScript) provides all user interfaces. The backend ex
 
 **Auth flow:** React login page calls the API; the API returns a short-lived JWT access token (held in memory) and sets a refresh token in an `HttpOnly`, `Secure`, `SameSite` cookie. SPA and API must share the same registrable domain (for example `app.erp.example` and `api.erp.example`). Strict Content-Security-Policy and standard security headers are set on the SPA host.
 
-**Fallback:** ASP.NET Core MVC is **not** part of the plan. It would be added as a separate `ERP.Web` project only if a concrete need appears (for example a server-rendered public marketing site or a document type that cannot be produced reliably as PDF). Any such change needs an ADR.
+**How React and the backend exchange data (request flow):**
+
+```
+React screen (MUI + TanStack Query)
+   -> HTTPS + JSON (+ JWT)            e.g. POST /api/v1/procurement/purchase-orders
+ASP.NET Core MVC controller (ERP.Api, thin)
+   -> Cortex.Mediator command/query   e.g. CreatePurchaseOrderCommand
+Pipeline behaviors (logging, authorization, validation, transaction)
+   -> Command/Query handler (Application layer: business logic)
+   -> Domain entities and rules (Domain layer)
+   -> Repository / EF Core DbContext (Infrastructure layer)
+   -> SQL Server
+   <- DTO result -> JSON response -> React updates the screen
+```
+
+So the backend **is** ASP.NET Core MVC-style controllers for data management; React only renders the UI and calls these endpoints. The difference from a classic MVC app is only that controllers return JSON instead of Razor HTML views.
+
+**Fallback:** server-rendered ASP.NET Core MVC with Razor views (HTML pages built on the server) is **not** part of the plan. It would be added as a separate `ERP.Web` project only if a concrete need appears (for example a server-rendered public marketing site or a document type that cannot be produced reliably as PDF). Any such change needs an ADR.
 
 ### 4.8 Hosting Portability
 
@@ -762,6 +779,6 @@ Development, Test/UAT, Production.
 6. ADR-006: Payroll rule engine design (data-driven, effective-dated)
 7. ADR-007: Authentication and permission model
 8. ADR-008: Multi-tenancy (pooled with RLS, optional dedicated DB)
-9. ADR-009: React SPA for all UI (login, admin, printing); MVC only as a fallback
+9. ADR-009: React SPA for all UI (login, admin, printing) over an ASP.NET Core MVC-controller Web API; Razor-view MVC only as a fallback
 10. ADR-010: Hosting portability (IIS now, Azure/Docker later)
 11. ADR-011: Country-pack plug-in design for Bangladesh and international expansion
